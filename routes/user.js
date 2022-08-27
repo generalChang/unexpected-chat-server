@@ -134,14 +134,37 @@ router.post("/email/certificate", auth, (req, res) => {
 });
 
 router.post("/resetPassword", (req, res) => {
-  const { email } = req.body;
+  const { email, mode } = req.body;
 
   User.findOne({
     email,
   }).exec((err, userInfo) => {
     if (err) res.send({ success: false, err });
     if (!userInfo) res.send({ success: false, msg: "Email not found" });
-    const randomPw = generateRandomPassword();
+
+    const newPwPage =
+      mode === "production"
+        ? `https://unexpected-chat-client.vercel.app/tmp/password/${userInfo._id}`
+        : `http://localhost:3000/tmp/password/${userInfo._id}`;
+    mailSender.sendGmail({
+      toEmail: email,
+      subject: "Email Certification Required before reset password",
+      html: `If you wanna receive temporary password, click this button -> <a href="${newPwPage}"><h3>reset and get new password</h3></a>`,
+    });
+
+    return res.send({ success: true });
+  });
+});
+
+router.post("/setTmpPassword", (req, res) => {
+  const { id, randomPw } = req.body;
+  console.log("Random pw : ", randomPw);
+  User.findOne({
+    _id: id,
+  }).exec((err, userInfo) => {
+    if (err) return res.send({ success: false, err });
+    if (!userInfo) return res.send({ success: false, msg: "User not found." });
+
     userInfo.generateNewPassword(randomPw, (err, hashPw) => {
       if (err) return res.send({ success: false, err });
 
@@ -155,13 +178,6 @@ router.post("/resetPassword", (req, res) => {
         }
       ).exec((err, info) => {
         if (err) return res.send({ success: false, err });
-
-        mailSender.sendGmail({
-          toEmail: email,
-          subject: "We initialized your password! Check it out!",
-          text: `Your new password is... : [${randomPw}]`,
-        });
-
         return res.send({ success: true, resetPassword: true });
       });
     });
