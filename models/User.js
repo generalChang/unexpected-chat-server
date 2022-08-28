@@ -9,7 +9,7 @@ const userSchema = mongoose.Schema({
   },
   email: {
     type: String,
-    unique: 1,
+    unique: true,
   },
   emailCertificated: {
     type: Boolean,
