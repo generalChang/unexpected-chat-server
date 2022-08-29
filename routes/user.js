@@ -2,9 +2,32 @@ const express = require("express");
 const auth = require("../middlewares/auth");
 const User = require("../models/User");
 const mailSender = require("../modules/mailSender");
-
+const multer = require("multer");
+const path = require("path");
 const router = express.Router();
 
+let storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/");
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}_${file.originalname}`);
+  },
+});
+
+let fileFilter = (req, file, cb) => {
+  const ext = path.extname(file.originalname);
+  if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif") {
+    cb(null, true);
+  } else {
+    cb({ msg: "only png, jpg, jpeg, gif allowed!!!" }, false);
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+}).single("file");
 ///랜덤한 이메일 인증코드를 만든다.
 function generateRandomAuthCode() {
   return Math.floor(Math.random() * 10 ** 8)
@@ -85,6 +108,7 @@ router.get("/auth", auth, (req, res) => {
     isAdmin: req.user.role === 1,
     image: req.user.image,
     emailCertificated: req.user.emailCertificated,
+    imageUpdated: req.user.imageUpdated,
     passwordReset: req.user.passwordReset,
   });
 });
@@ -98,7 +122,7 @@ router.get("/logout", auth, (req, res) => {
       token: "",
     }
   ).exec((err, userInfo) => {
-    if (err) res.send({ success: false, err });
+    if (err) return res.send({ success: false, err });
     return res.send({ success: true });
   });
 });
@@ -139,8 +163,8 @@ router.post("/resetPassword", (req, res) => {
   User.findOne({
     email,
   }).exec((err, userInfo) => {
-    if (err) res.send({ success: false, err });
-    if (!userInfo) res.send({ success: false, msg: "Email not found" });
+    if (err) return res.send({ success: false, err });
+    if (!userInfo) return res.send({ success: false, msg: "Email not found" });
 
     const newPwPage =
       mode === "production"
@@ -208,6 +232,40 @@ router.post("/updatePassword", auth, (req, res) => {
         return res.send({ success: true, resetPassword: true });
       });
     });
+  });
+});
+
+router.post("/image", (req, res) => {
+  upload(req, res, (err) => {
+    if (err) return res.send({ success: false, err });
+    return res.send({
+      success: true,
+      url: req.file.path,
+      filename: req.file.filename,
+    });
+  });
+});
+
+router.post("/profile/upload", auth, (req, res) => {
+  const data = {};
+  for (let key in req.body) {
+    if (key == "image") {
+      if (req.body.image !== "") {
+        data[key] = req.body[key];
+      }
+    } else {
+      data[key] = req.body[key];
+    }
+  }
+
+  User.findOneAndUpdate(
+    {
+      _id: req.user._id,
+    },
+    data
+  ).exec((err, userInfo) => {
+    if (err) return res.send({ success: false, err });
+    return res.send({ success: true });
   });
 });
 module.exports = router;

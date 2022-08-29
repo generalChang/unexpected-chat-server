@@ -6,6 +6,7 @@ const config = require("./config/key");
 const cookieParser = require("cookie-parser");
 const http = require("http");
 const socketIo = require("socket.io");
+const moment = require("moment");
 const app = express();
 
 mongoose
@@ -67,6 +68,43 @@ function publicRooms(roomtype) {
   return publicRooms; //해당 카테고리의 room_id들을 담아서 반환.
 }
 
+function searchingSomeone(socket) {
+  // for (let key in io.sockets.connected) {
+  //   if (socket.id === key) {
+  //     console.log("나야");
+  //   } else {
+  //     console.log("나 아니야");
+  //   }
+  // }
+
+  for (let key in io.sockets.connected) {
+    if (socket.id !== key) {
+      if (
+        io.sockets.connected[key] &&
+        io.sockets.connected[key].searching === true &&
+        io.sockets.connected[key].searched === false
+      ) {
+        ///매칭 상대를 찾은거임.
+        ///룸을 만들고 그 둘을 그 룸에 넣어주면 된다.
+        socket.searching = false;
+        socket.searched = true;
+        io.sockets.connected[key].searching = false;
+        io.sockets.connected[key].searched = true;
+
+        const roomId = Date.now();
+        socket.join(roomId);
+        socket.roomId = roomId;
+        socket.type = "RANDOM_CHAT";
+        io.sockets.connected[key].join(roomId);
+        io.sockets.connected[key].roomId = roomId;
+        io.sockets.connected[key].type = "RANDOM_CHAT";
+        io.sockets.in(roomId).emit("enter_room", roomId);
+
+        break;
+      }
+    }
+  }
+}
 io.on("connection", (socket) => {
   console.log("connection complete!!");
 
@@ -83,6 +121,13 @@ io.on("connection", (socket) => {
         socket.obj.roomtype,
         publicRooms(socket.obj.roomtype)
       );
+    }
+
+    if (socket.type === "RANDOM_CHAT" && socket.roomId) {
+      socket.to(socket.roomId).emit("leave_random_chat_room", {
+        username: "Your partner",
+        image: `http://gravatar.com/avatar/${moment().unix()}?d=identicon`,
+      });
     }
   });
   socket.on("public_rooms", (type) => {
@@ -120,6 +165,24 @@ io.on("connection", (socket) => {
     socket.leave(obj.roomId);
     socket.roomId = null;
     io.sockets.emit("public_rooms", obj.roomtype, publicRooms(obj.roomtype));
+  });
+
+  socket.on("leave_random_chat_room", (obj, done) => {
+    socket.to(obj.roomId).emit("leave_random_chat_room", obj);
+    socket.searching = false; //찾고있는중.
+    socket.searched = false; //매칭된상태.
+    socket.roomId = null;
+    done(obj);
+    socket.leave(obj.roomId);
+  });
+
+  socket.on("startSearchingSomeone", (done) => {
+    socket.searching = true; //찾고있는중.
+    socket.searched = false; //매칭된상태.
+    // console.log("socket.id : ", socket.id);
+    // console.log("io.sockets.connected : ", io.sockets.connected);
+    done();
+    searchingSomeone(socket);
   });
 });
 

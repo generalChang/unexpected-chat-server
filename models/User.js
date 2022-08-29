@@ -39,6 +39,10 @@ const userSchema = mongoose.Schema({
   image: {
     type: String,
   },
+  imageUpdated: {
+    type: Boolean,
+    default: false,
+  },
   token: {
     type: String,
   },
