@@ -68,6 +68,11 @@ function publicRooms(roomtype) {
   return publicRooms; //해당 카테고리의 room_id들을 담아서 반환.
 }
 
+function numberOfPeople(roomId) {
+  const rooms = io.sockets.adapter.rooms;
+  return rooms[roomId].length; ///인원수
+}
+
 function searchingSomeone(socket) {
   // for (let key in io.sockets.connected) {
   //   if (socket.id === key) {
@@ -109,12 +114,8 @@ io.on("connection", (socket) => {
   console.log("connection complete!!");
 
   socket.on("disconnect", () => {
-    if (
-      socket.roomId &&
-      socket.obj &&
-      socket.obj.roomId &&
-      socket.obj.roomtype
-    ) {
+    if (socket.roomId && socket.roomtype === "GROUP_CHAT") {
+      //GROUP_CHAT
       socket.to(socket.obj.roomId).emit("leave_room", socket.obj);
       io.sockets.emit(
         "public_rooms",
@@ -124,10 +125,20 @@ io.on("connection", (socket) => {
     }
 
     if (socket.type === "RANDOM_CHAT" && socket.roomId) {
+      ///RANDOM_CHAT
       socket.to(socket.roomId).emit("leave_random_chat_room", {
         username: "Your partner",
         image: `http://gravatar.com/avatar/${moment().unix()}?d=identicon`,
       });
+    }
+
+    if (socket.roomtype === "CALL_CHAT" && socket.roomId) {
+      socket.to(socket.roomId).emit("leave-video-chat-room", socket.obj);
+      io.sockets.emit(
+        "public_rooms",
+        socket.roomtype,
+        publicRooms(socket.roomtype)
+      );
     }
   });
   socket.on("public_rooms", (type) => {
@@ -183,6 +194,58 @@ io.on("connection", (socket) => {
     // console.log("io.sockets.connected : ", io.sockets.connected);
     done();
     searchingSomeone(socket);
+  });
+
+  socket.on("create-video-chat-room", (obj, done) => {
+    obj["_id"] = Date.now();
+    const roomId = JSON.stringify(obj);
+    socket.join(roomId);
+    socket.roomId = roomId;
+    socket.roomtype = obj.roomtype;
+    socket.obj = obj;
+    done(roomId);
+    io.sockets.emit("public_rooms", obj.roomtype, publicRooms(obj.roomtype));
+  });
+
+  socket.on("enter-video-chat-room", (obj, done) => {
+    if (numberOfPeople(obj.roomId) >= 2) {
+      done(false);
+      return;
+    } else {
+      socket.join(obj.roomId);
+      socket.roomId = obj.roomId;
+      socket.roomtype = obj.roomtype;
+      socket.obj = obj;
+      done(true);
+      socket.to(obj.roomId).emit("welcome", obj);
+      io.sockets.emit("public_rooms", obj.roomtype, publicRooms(obj.roomtype));
+    }
+  });
+
+  socket.on("leave-video-chat-room", (obj, done) => {
+    socket.to(obj.roomId).emit("leave-video-chat-room", obj);
+    done(obj);
+    socket.leave(obj.roomId);
+    socket.roomId = null;
+    io.sockets.emit("public_rooms", obj.roomtype, publicRooms(obj.roomtype));
+  });
+
+  socket.on("offer", (sdp) => {
+    // room에는 두 명 밖에 없으므로 broadcast 사용해서 전달
+    // 여러 명 있는 처리는 다음 포스트 1:N에서...
+    socket.to(socket.roomId).emit("getOffer", sdp);
+  });
+
+  socket.on("answer", (sdp) => {
+    // room에는 두 명 밖에 없으므로 broadcast 사용해서 전달
+    // 여러 명 있는 처리는 다음 포스트 1:N에서...
+    socket.to(socket.roomId).emit("getAnswer", sdp);
+  });
+
+  socket.on("candidate", (candidate) => {
+    // room에는 두 명 밖에 없으므로 broadcast 사용해서 전달
+    // 여러 명 있는 처리는 다음 포스트 1:N에서...
+    socket.to(socket.roomId).emit("getCandidate", candidate);
   });
 });
 
