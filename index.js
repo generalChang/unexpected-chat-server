@@ -31,6 +31,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use("/uploads", express.static("uploads"));
 
 app.use("/api/user/", require("./routes/user"));
+app.use("/api/chat/", require("./routes/chat"));
 
 const port = process.env.PORT || 5000;
 
