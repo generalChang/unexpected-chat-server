@@ -32,6 +32,7 @@ app.use("/uploads", express.static("uploads"));
 
 app.use("/api/user/", require("./routes/user"));
 app.use("/api/chat/", require("./routes/chat"));
+app.use("/api/friend/", require("./routes/friend"));
 
 const port = process.env.PORT || 5000;
 

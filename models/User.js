@@ -49,6 +49,10 @@ const userSchema = mongoose.Schema({
   tokenExp: {
     type: Number,
   },
+  friends: {
+    type: Array,
+    default: [],
+  },
 });
 
 userSchema.pre("save", function (next) {

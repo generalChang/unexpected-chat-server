@@ -31,11 +31,100 @@ router.post("/createChatRoom", (req, res) => {
   });
 });
 
+//사적인 1대1  채팅방을 만든다.
+router.post("/createPrivacyChatRoom", (req, res) => {
+  const { title, userId, partner, privacy } = req.body;
+  ChatRoom.find({
+    privacy: true,
+  }).exec((err, privacyChatRooms) => {
+    if (err) return res.send({ success: false, err });
+
+    let isAlreadyPrivacyChat = false;
+    privacyChatRooms.forEach((privacyChatRoom) => {
+      let joiners = privacyChatRoom.joiners;
+      let joinersId = [];
+
+      joiners.forEach((joiner) => {
+        joinersId.push(joiner.userId);
+      });
+
+      if (joinersId.includes(userId) && joinersId.includes(partner)) {
+        isAlreadyPrivacyChat = true;
+      }
+    });
+
+    if (isAlreadyPrivacyChat) {
+      //이미 1대1 채팅방이 존재한다면
+      return res.send({ success: false, isAlreadyPrivacyChat: true });
+    } else {
+      //채팅방이 없었더라면
+      const chatRoom = new ChatRoom({ title, userId, privacy });
+      chatRoom.save((err, info) => {
+        if (err) return res.send({ success: false, err });
+
+        ChatRoom.findOneAndUpdate(
+          {
+            _id: info._id,
+          },
+          {
+            joiners: [
+              {
+                userId: userId,
+                date: Date.now(), //이양반이 입장한 시간.
+              },
+              {
+                userId: partner,
+                date: Date.now(), //이양반이 입장한 시간.
+              },
+            ],
+          },
+          { new: true }
+        ).exec((err, chatroominfo) => {
+          if (err) return res.send({ success: false, err });
+          return res.send({ success: true, chatRoom: chatroominfo });
+        });
+      });
+    }
+  });
+});
+
+router.post("/chatPrivacyRoom", (req, res) => {
+  const { userId, partner } = req.body;
+  ChatRoom.find({
+    privacy: true,
+  }).exec((err, privacyChatRooms) => {
+    if (err) return res.send({ success: false, err });
+
+    let isAlreadyPrivacyChat = false;
+    let pvRoom = null;
+    privacyChatRooms.forEach((privacyChatRoom) => {
+      let joiners = privacyChatRoom.joiners;
+      let joinersId = [];
+
+      joiners.forEach((joiner) => {
+        joinersId.push(joiner.userId);
+      });
+
+      if (joinersId.includes(userId) && joinersId.includes(partner)) {
+        isAlreadyPrivacyChat = true;
+        pvRoom = privacyChatRoom;
+      }
+    });
+
+    if (isAlreadyPrivacyChat) {
+      //이미 1대1 채팅방이 존재한다면
+      return res.send({ success: true, chatRoom: pvRoom });
+    } else {
+      return res.send({ success: false, msg: "not found" });
+    }
+  });
+});
 router.post("/chatrooms", (req, res) => {
   const keyword = req.body.keyword ? req.body.keyword : "";
   const skip = req.body.skip ? req.body.skip : 0;
   const limit = req.body.limit ? req.body.limit : 12;
   ChatRoom.find({
+    privacy: false,
     title: {
       $regex: keyword,
     },
@@ -46,6 +135,7 @@ router.post("/chatrooms", (req, res) => {
     .exec((err, rooms) => {
       if (err) return res.send({ success: false, err });
       ChatRoom.find({
+        privacy: false,
         title: {
           $regex: keyword,
         },
@@ -64,6 +154,8 @@ router.post("/chatrooms", (req, res) => {
     });
 });
 
+//해당 유저가 접속해있는 방의 목록을 가져온다.
+//방의 읽지않은 메세지도 가져오자.
 router.post("/chatroomsByUser", (req, res) => {
   const { userId } = req.body;
   ChatRoom.find()
@@ -91,8 +183,70 @@ router.post("/chatroomsByUser", (req, res) => {
         .populate("userId")
         .exec((err, chatRoomsInfo) => {
           if (err) return res.send({ success: false, err });
+
+          //접속해있는 방들을 가져왔따.
+
           return res.send({ success: true, chatRooms: chatRoomsInfo });
         });
+    });
+});
+
+// 이양반이 접속해있는 이 방에서
+// 이양반이 접속한 시간 이후에 쌓인 채팅목록을 가져오고,
+// 그 채팅목록중에 이양반이 chatRead에 없으면 안읽은 메세지다.
+// 채팅방 별로 안읽은 메세지 필드(unReadCount)를 추가해줘서 클라이언트로 보내주자.
+router.post("/unreadChat", auth, (req, res) => {
+  const { roomId } = req.body;
+  Chat.find({
+    chatRoom: roomId,
+  })
+    .populate("userId")
+    .exec((err, chatInfo) => {
+      if (err) return res.send({ success: false, err });
+
+      ChatRoom.findOne({
+        _id: roomId,
+      }).exec((err, chatRoomInfo) => {
+        if (err) return res.send({ success: false, err });
+        if (!chatRoomInfo) return res.send({ success: false, closed: true });
+
+        let myJoinTime;
+        chatRoomInfo.joiners.forEach((joiner) => {
+          if (joiner.userId == req.user._id) {
+            myJoinTime = joiner.date;
+          }
+        });
+        // 내가 접속한 시간을 얻어온다.
+
+        let chattings = [];
+        chatInfo.forEach((chatting) => {
+          if (myJoinTime < new Date(chatting.createdAt).getTime()) {
+            chattings.push(chatting);
+          }
+        });
+        // 내가 접속한 시간보다 더 나중에 쌓인 채팅들을 얻어온다.
+
+        /// 그 쌓여있는 채팅들의 chatRead값에 값을 추가해준다.
+        let unReadCount = 0;
+        chattings.forEach((chatting, index) => {
+          let chattingReaders = [];
+          chatting.chatRead.forEach((chatReader, index) => {
+            chattingReaders.push(chatReader.userId);
+          });
+          let isAlreadyPushReader = false;
+          chattingReaders.forEach((reader, index) => {
+            if (reader.equals(req.user._id)) {
+              isAlreadyPushReader = true;
+            }
+          });
+
+          if (!isAlreadyPushReader) {
+            unReadCount++;
+          }
+        });
+
+        return res.send({ success: true, unReadCount });
+      });
     });
 });
 
@@ -109,6 +263,7 @@ router.post("/chatroom", (req, res) => {
       return res.send({ success: true, chatRoom: chatRoomInfo });
     });
 });
+
 router.post("/join", (req, res) => {
   // 해당 채팅방에 이미 들어와있는지 아닌지 검사
   //
@@ -157,7 +312,7 @@ router.post("/join", (req, res) => {
   });
 });
 
-//채팅목록을 불러온다.
+//채팅목록을 불러온다.(채팅 읽기)
 router.post("/chat", auth, (req, res) => {
   const { roomId } = req.body;
   Chat.find({
@@ -182,12 +337,52 @@ router.post("/chat", auth, (req, res) => {
         // 내가 접속한 시간을 얻어온다.
 
         let chattings = [];
+        let chattingIds = [];
         chatInfo.forEach((chatting) => {
           if (myJoinTime < new Date(chatting.createdAt).getTime()) {
             chattings.push(chatting);
+            chattingIds.push(chatting._id);
           }
         });
         // 내가 접속한 시간보다 더 나중에 쌓인 채팅들을 얻어온다.
+
+        /// 그 쌓여있는 채팅들의 chatRead값에 값을 추가해준다.
+
+        async.eachSeries(
+          chattings,
+          (chatting, callback) => {
+            let chattingReaders = [];
+            chatting.chatRead.forEach((chatReader, index) => {
+              chattingReaders.push(chatReader.userId);
+            });
+            let isAlreadyPushReader = false;
+            chattingReaders.forEach((reader, index) => {
+              if (reader.equals(req.user._id)) {
+                isAlreadyPushReader = true;
+              }
+            });
+            if (!isAlreadyPushReader) {
+              Chat.findOneAndUpdate(
+                {
+                  _id: chatting._id,
+                },
+                {
+                  $push: {
+                    chatRead: {
+                      userId: req.user._id,
+                    },
+                  },
+                },
+                { new: true }
+              ).exec(callback);
+            } else {
+              callback();
+            }
+          },
+          (err, info) => {
+            if (err) return res.send({ success: false, err });
+          }
+        );
 
         return res.send({ success: true, chatting: chattings });
       });
@@ -322,4 +517,5 @@ router.post("/joiners", (req, res) => {
     });
   });
 });
+
 module.exports = router;

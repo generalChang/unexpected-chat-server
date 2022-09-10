@@ -127,6 +127,26 @@ router.get("/logout", auth, (req, res) => {
   });
 });
 
+router.post("/user", (req, res) => {
+  const { userId } = req.body;
+  User.findOne({
+    _id: userId,
+  }).exec((err, userInfo) => {
+    if (err) return res.send({ success: false, err });
+    let user = {
+      _id: userInfo._id,
+      username: userInfo.username,
+      email: userInfo.email,
+      gender: userInfo.gender,
+      age: userInfo.age,
+      isAdmin: userInfo.role === 1,
+      image: userInfo.image,
+      imageUpdated: userInfo.imageUpdated,
+    };
+    return res.send({ success: true, user });
+  });
+});
+
 //받아온 authcode와 데이터베이스의 authcode가 같은지 확인.
 router.post("/email/certificate", auth, (req, res) => {
   const { authCode } = req.body;

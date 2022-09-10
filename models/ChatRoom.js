@@ -15,6 +15,10 @@ const chatRoomSchema = mongoose.Schema(
       type: Array,
       default: [],
     },
+    privacy: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );
